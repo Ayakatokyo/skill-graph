@@ -1,0 +1,4 @@
+interface:
+  display_name: "Skill Graph · 技能流程图"
+  short_description: "梳理技能真实流程，在交互图上批注与调整，并生成有来源的优化提示词"
+  default_prompt: "使用 $skill-graph 梳理我指定的单个 Skill，打开带来源定位的交互流程图，并将图上修改导出为可执行的优化请求。"

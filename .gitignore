@@ -1,0 +1,20 @@
+node_modules/
+.DS_Store
+artifacts/
+*.log
+
+# Local analysis includes source excerpts and machine-specific paths.
+examples/skill-creator.*
+*.session.json
+*.inventory.json
+
+# Local credentials, editor settings, and caches.
+.env
+.env.*
+!.env.example
+.venv/
+.venv*/
+__pycache__/
+.pytest_cache/
+.idea/
+.vscode/

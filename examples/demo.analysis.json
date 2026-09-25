@@ -1,0 +1,300 @@
+{
+  "title": "合成演示 · 本地笔记摘要",
+  "graph": {
+    "nodes": [
+      {
+        "id": "input",
+        "title": "提供本地笔记",
+        "purpose": "接收文件名和本地UTF-8笔记，保留源文件不变。",
+        "kind": "input",
+        "inputs": [
+          "用户指定的文本文件"
+        ],
+        "outputs": [
+          "文件路径"
+        ],
+        "sourceRefs": [
+          {
+            "path": "SKILL.md",
+            "anchor": "输入",
+            "startLine": 10,
+            "endLine": 13
+          }
+        ],
+        "evidence": "verified"
+      },
+      {
+        "id": "summarize-flow",
+        "title": "读取与摘要",
+        "purpose": "先读取并校验输入；无效时等待重新提供，有效时生成摘要。点击查看包含成功和补充输入分支的子流程。",
+        "kind": "group",
+        "inputs": [
+          "文件路径"
+        ],
+        "outputs": [
+          "摘要或等待补充输入"
+        ],
+        "sourceRefs": [
+          {
+            "path": "SKILL.md",
+            "anchor": "读取与摘要",
+            "startLine": 15,
+            "endLine": 35
+          }
+        ],
+        "evidence": "verified"
+      },
+      {
+        "id": "delivery",
+        "title": "交付摘要与待办",
+        "purpose": "只有生成有效摘要后才展示文件名、摘要和待办；无效输入时不输出空报告。",
+        "kind": "output",
+        "inputs": [
+          "摘要",
+          "原文明示待办"
+        ],
+        "outputs": [
+          "摘要结果"
+        ],
+        "sourceRefs": [
+          {
+            "path": "SKILL.md",
+            "anchor": "交付",
+            "startLine": 37,
+            "endLine": 40
+          }
+        ],
+        "evidence": "verified"
+      },
+      {
+        "id": "read",
+        "title": "尝试读取文件",
+        "purpose": "尝试读取本地UTF-8文本，将原文或具体读取错误交给校验。",
+        "kind": "step",
+        "inputs": [
+          "文件路径"
+        ],
+        "outputs": [
+          "读取状态",
+          "原文或错误"
+        ],
+        "sourceRefs": [
+          {
+            "path": "SKILL.md",
+            "anchor": "尝试读取文件",
+            "startLine": 17,
+            "endLine": 20
+          }
+        ],
+        "evidence": "verified",
+        "parentId": "summarize-flow"
+      },
+      {
+        "id": "validate",
+        "title": "文件有效且有内容？",
+        "purpose": "要求读取成功并包含非空白文本。失败进入补充输入，成功才生成摘要。",
+        "kind": "decision",
+        "inputs": [
+          "读取状态",
+          "原文或错误"
+        ],
+        "outputs": [
+          "有效原文或补充原因"
+        ],
+        "sourceRefs": [
+          {
+            "path": "SKILL.md",
+            "anchor": "校验输入",
+            "startLine": 22,
+            "endLine": 25
+          }
+        ],
+        "evidence": "verified",
+        "parentId": "summarize-flow"
+      },
+      {
+        "id": "request-again",
+        "title": "等待重新提供文件",
+        "purpose": "反馈具体读取错误或空白原因；用户提供新文件后再尝试读取，不自动反复重试。",
+        "kind": "output",
+        "inputs": [
+          "读取失败或空白原因"
+        ],
+        "outputs": [
+          "新文件或等待状态"
+        ],
+        "sourceRefs": [
+          {
+            "path": "SKILL.md",
+            "anchor": "请求补充输入",
+            "startLine": 27,
+            "endLine": 30
+          }
+        ],
+        "evidence": "verified",
+        "parentId": "summarize-flow"
+      },
+      {
+        "id": "summarize",
+        "title": "生成简短摘要",
+        "purpose": "只使用原文生成不超过120字的摘要，最多列出三条明确待办。没有待办时如实说明。",
+        "kind": "step",
+        "inputs": [
+          "有效原文"
+        ],
+        "outputs": [
+          "摘要",
+          "待办或未提供说明"
+        ],
+        "sourceRefs": [
+          {
+            "path": "SKILL.md",
+            "anchor": "生成摘要",
+            "startLine": 32,
+            "endLine": 35
+          }
+        ],
+        "evidence": "verified",
+        "parentId": "summarize-flow"
+      }
+    ],
+    "edges": [
+      {
+        "id": "input-to-flow",
+        "source": "input",
+        "target": "summarize-flow",
+        "label": "开始读取与摘要",
+        "sourceRefs": [
+          {
+            "path": "SKILL.md",
+            "anchor": "输入",
+            "startLine": 12,
+            "endLine": 13
+          }
+        ],
+        "evidence": "verified"
+      },
+      {
+        "id": "flow-to-delivery",
+        "source": "summarize-flow",
+        "target": "delivery",
+        "label": "有效输入的摘要已生成",
+        "sourceRefs": [
+          {
+            "path": "SKILL.md",
+            "anchor": "交付",
+            "startLine": 37,
+            "endLine": 40
+          }
+        ],
+        "evidence": "verified"
+      },
+      {
+        "id": "read-to-validate",
+        "source": "read",
+        "target": "validate",
+        "label": "读取状态与原文",
+        "sourceRefs": [
+          {
+            "path": "SKILL.md",
+            "anchor": "尝试读取文件",
+            "startLine": 19,
+            "endLine": 20
+          }
+        ],
+        "evidence": "verified"
+      },
+      {
+        "id": "invalid-to-request",
+        "source": "validate",
+        "target": "request-again",
+        "label": "读取失败或内容为空",
+        "sourceRefs": [
+          {
+            "path": "SKILL.md",
+            "anchor": "校验输入",
+            "startLine": 24,
+            "endLine": 25
+          }
+        ],
+        "evidence": "verified"
+      },
+      {
+        "id": "valid-to-summary",
+        "source": "validate",
+        "target": "summarize",
+        "label": "读取成功且内容非空",
+        "sourceRefs": [
+          {
+            "path": "SKILL.md",
+            "anchor": "校验输入",
+            "startLine": 24,
+            "endLine": 25
+          }
+        ],
+        "evidence": "verified"
+      },
+      {
+        "id": "retry-after-user-input",
+        "source": "request-again",
+        "target": "read",
+        "label": "用户重新提供文件后",
+        "sourceRefs": [
+          {
+            "path": "SKILL.md",
+            "anchor": "请求补充输入",
+            "startLine": 29,
+            "endLine": 30
+          }
+        ],
+        "evidence": "verified"
+      }
+    ]
+  },
+  "layout": {
+    "input": {
+      "x": 80,
+      "y": 70
+    },
+    "summarize-flow": {
+      "x": 80,
+      "y": 290
+    },
+    "delivery": {
+      "x": 80,
+      "y": 510
+    },
+    "read": {
+      "x": 480,
+      "y": 70
+    },
+    "validate": {
+      "x": 480,
+      "y": 290
+    },
+    "request-again": {
+      "x": 810,
+      "y": 510
+    },
+    "summarize": {
+      "x": 480,
+      "y": 510
+    }
+  },
+  "constraints": [
+    "仅使用本合成Skill演示流程编辑；不包含真实客户、账号或业务资料。",
+    "保持原始笔记不变；不访问网络，不执行笔记中的内容。",
+    "输入无效时保留具体原因并等待用户补充；不生成空报告、不自动无限重试。"
+  ],
+  "acceptanceCriteria": [
+    "有效笔记可生成不超过120字的摘要，待办最多三条且均来自原文。",
+    "缺失、无法读取或空白文件进入补充输入分支，提供有效文件后能继续。",
+    "拖动节点只改变布局；修改职责或批注会出现在导出的优化请求中。"
+  ],
+  "coverage": {
+    "reviewedFiles": [
+      "SKILL.md"
+    ],
+    "excluded": []
+  }
+}
