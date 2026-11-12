@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ReactFlow, Background, Controls, MiniMap, Handle, Position, MarkerType, applyNodeChanges } from '@xyflow/react';
-import { Workflow, Plus, Search, Undo2, Redo2, Upload, Download, Copy, X, ChevronRight, FileText, MessageSquare, Check, ArrowRight, CircleDot, GitBranch, LogIn, LogOut, Layers, Trash2, ShieldCheck, AlertCircle, PanelLeft, PanelRight } from 'lucide-react';
+import { ReactFlow, Background, Controls, Handle, Position, MarkerType, applyNodeChanges } from '@xyflow/react';
+import { Workflow, Plus, Search, Undo2, Redo2, Upload, Copy, X, ChevronRight, FileText, MessageSquare, Check, CircleDot, GitBranch, LogIn, LogOut, Layers, Trash2, ShieldCheck, AlertCircle, PanelLeft } from 'lucide-react';
 import { validateSession, buildChangeSet, generatePrompt, toMermaid } from '../skill-graph/scripts/lib/graph.mjs';
+import { renderStandalone } from '../skill-graph/scripts/lib/standalone.mjs';
 import { createHistory, commitHistory, undoHistory, redoHistory, removeNode, draftStorageKey, restoreDraft, initialPositions, filterGraphLevel } from './canvas-state.mjs';
 
 const kinds = { input: ['输入', LogIn], step: ['步骤', CircleDot], decision: ['判断', GitBranch], output: ['输出', LogOut], group: ['子流程', Layers] };
@@ -37,7 +38,7 @@ function Field({ label, value, onCommit, multiline = false, disabled = false, hi
 
 function SourceList({ refs = [] }) {
   if (!refs.length) return <p className="muted small">此对象没有已定位的来源。新增步骤会在执行时确定实现位置。</p>;
-  return <div className="sources">{refs.map((source, index) => <details key={`${source.path}-${index}`} className="source" open={index === 0}>
+  return <div className="sources">{refs.map((source, index) => <details key={`${source.path}-${index}`} className="source">
     <summary><FileText size={14} /><span>{source.path}</span><span className="source-lines">{source.startLine ? `L${source.startLine}${source.endLine !== source.startLine ? `–${source.endLine}` : ''}` : ''}</span></summary>
     {source.anchor && <p>{source.anchor}</p>}{source.excerpt && <pre>{source.excerpt}</pre>}
   </details>)}</div>;
@@ -80,13 +81,14 @@ function GraphCanvas({ graph, session, selected, onSelect, onLayout, onConnect, 
   const edges = useMemo(() => visibleGraph.edges.map(edge => ({
     ...edge,
     type: 'smoothstep',
+    label: edge.label.length > 10 ? `${edge.label.slice(0, 10)}…` : edge.label,
     selected: selected.type === 'edge' && selected.id === edge.id,
     markerEnd: { type: MarkerType.ArrowClosed, width: 17, height: 17 },
     style: { strokeWidth: selected.id === edge.id ? 2.5 : 1.5, ...(edge.evidence === 'inferred' ? { strokeDasharray: '5 5' } : {}) },
     labelStyle: { fontSize: 12 }, labelBgPadding: [7, 4], labelBgBorderRadius: 4,
   })), [visibleGraph.edges, selected]);
   return <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} onInit={flow => { instance.current = flow; }} onNodesChange={changes => setNodes(current => applyNodeChanges(changes.filter(change => change.type !== 'remove'), current))} onNodeDragStop={(_, node) => onLayout(node.id, node.position)} onNodeClick={(_, node) => onSelect({ type: 'node', id: node.id })} onEdgeClick={(_, edge) => onSelect({ type: 'edge', id: edge.id })} onPaneClick={() => onSelect({ type: 'graph', id: session.id })} onConnect={onConnect} nodesConnectable={!readonly} edgesReconnectable={false} deleteKeyCode={null} multiSelectionKeyCode={null} selectionKeyCode={null} fitView fitViewOptions={{ padding: 0.25, maxZoom: 1 }} minZoom={0.15} maxZoom={1.6} proOptions={{ hideAttribution: true }} ariaLabelConfig={{ 'controls.zoomIn.ariaLabel': '放大流程图', 'controls.zoomOut.ariaLabel': '缩小流程图', 'controls.fitView.ariaLabel': '适应画布', 'minimap.ariaLabel': '流程缩略图' }}>
-    <Background gap={22} size={1} /><Controls showInteractive={false} /><MiniMap nodeStrokeWidth={2} pannable zoomable />
+    <Background gap={26} size={0.6} /><Controls showInteractive={false} />
   </ReactFlow>;
 }
 
@@ -104,10 +106,17 @@ export default function App() {
   const [overview, setOverview] = useState(false);
   const [reviewTab, setReviewTab] = useState(null);
   const [exportPreview, setExportPreview] = useState(null);
-  const [mobilePanel, setMobilePanel] = useState('canvas');
   const [verification, setVerification] = useState({ status: 'unverified' });
   const [saveState, setSaveState] = useState('已载入');
+  const [treeOpen, setTreeOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [fileMenuOpen, setFileMenuOpen] = useState(false);
+  const offline = Boolean(document.getElementById('skill-graph-session'));
+  const snapshotId = document.getElementById('skill-graph-session')?.dataset.snapshotId;
+  const storageKey = useCallback(value => `${draftStorageKey(value)}${snapshotId ? `:page:${snapshotId}` : ''}`, [snapshotId]);
   const inputRef = useRef(null);
+  const fileMenuRef = useRef(null);
   const exportPreviewRef = useRef(null);
   const notify = useCallback((text, error = false) => setMessage({ text, error }), []);
 
@@ -115,18 +124,26 @@ export default function App() {
     let valid = validateSession(value);
     let restored = false;
     if (recover) {
-      try { const saved = restoreDraft(valid, localStorage.getItem(draftStorageKey(valid)), validateSession); if (saved) { valid = saved; restored = true; } } catch { /* file import/export remains available */ }
+      try { const saved = restoreDraft(valid, localStorage.getItem(storageKey(valid)), validateSession); if (saved) { valid = saved; restored = true; } } catch { /* file import/export remains available */ }
     }
     setHistory(createHistory(valid)); setSelected({ type: 'graph', id: valid.id }); setScope(''); setOverview(valid.draft.nodes.some(node => node.parentId)); setQuery(''); setMode('draft'); setReviewTab(null); setExportPreview(null); setVerification({ status: 'unverified' });
-    setSaveState(restored ? '已恢复本机草稿' : '已载入');
+    setSaveState(restored ? '已恢复浏览器草稿' : '已载入');
+    setDetailOpen(false); setEditing(false); setFileMenuOpen(false);
     if (restored) notify('已恢复此流程和基线对应的本机草稿。');
-  }, [notify]);
+  }, [notify, storageKey]);
 
   useEffect(() => {
+    const embedded = document.getElementById('skill-graph-session');
+    if (embedded) {
+      try { loadSession(JSON.parse(embedded.textContent), true); }
+      catch (error) { notify(`网页中的流程数据无效：${error.message}`, true); }
+      setLoading(false);
+      return;
+    }
     const abort = new AbortController();
     fetch('/api/session', { signal: abort.signal }).then(response => { if (!response.ok) throw Error('unavailable'); return response.json(); }).then(value => loadSession(value, true)).catch(error => { if (error.name !== 'AbortError') setHistory(null); }).finally(() => setLoading(false));
     return () => abort.abort();
-  }, [loadSession]);
+  }, [loadSession, notify]);
   useEffect(() => { if (!message) return; const timer = setTimeout(() => setMessage(null), 5200); return () => clearTimeout(timer); }, [message]);
   useEffect(() => { if (exportPreview && reviewTab === 'export') { exportPreviewRef.current?.focus(); exportPreviewRef.current?.select(); } }, [exportPreview, reviewTab]);
 
@@ -134,11 +151,19 @@ export default function App() {
     if (!session) return;
     setSaveState('正在保存…');
     const timer = setTimeout(() => {
-      try { localStorage.setItem(draftStorageKey(session), JSON.stringify(session)); setSaveState('已保存本机'); }
+      try { localStorage.setItem(storageKey(session), JSON.stringify(session)); setSaveState('浏览器草稿已保存'); }
       catch { setSaveState('未保存，请导出会话'); }
     }, 350);
     return () => clearTimeout(timer);
-  }, [session]);
+  }, [session, storageKey]);
+
+  useEffect(() => {
+    if (!fileMenuOpen) return;
+    const outside = event => { if (!fileMenuRef.current?.contains(event.target)) setFileMenuOpen(false); };
+    const escape = event => { if (event.key === 'Escape') setFileMenuOpen(false); };
+    document.addEventListener('pointerdown', outside); document.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
+  }, [fileMenuOpen]);
 
   const commit = useCallback(updater => setHistory(current => {
     if (!current) return current;
@@ -180,18 +205,19 @@ export default function App() {
   const addNode = () => {
     const id = uid('step');
     const newNode = { id, title: '新增步骤', purpose: '', kind: 'step', inputs: [], outputs: [], sourceRefs: [], evidence: 'proposed', ...(!overview && scope && session.draft.nodes.some(node => node.id === scope) ? { parentId: scope } : {}) };
-    commit(current => ({ ...current, draft: { ...current.draft, nodes: [...current.draft.nodes, newNode] }, layout: { ...current.layout, [id]: { x: 100 + (current.draft.nodes.length % 3) * 310, y: Math.max(0, ...Object.values(current.layout).map(position => position.y)) + 190 } } }));
-    setSelected({ type: 'node', id }); setMobilePanel('details');
+    commit(current => ({ ...current, draft: { ...current.draft, nodes: [...current.draft.nodes, newNode] }, layout: { ...current.layout, [id]: { x: 100 + (current.draft.nodes.length % 3) * 310, y: Math.max(0, ...visibleGraph.nodes.map(node => current.layout[node.id]?.y || 0)) + 210 } } }));
+    setSelected({ type: 'node', id }); setDetailOpen(true);
   };
   const onConnect = useCallback(connection => {
     if (!connection.source || !connection.target || mode !== 'draft') return;
     const id = uid('edge');
     commit(current => ({ ...current, draft: { ...current.draft, edges: [...current.draft.edges, { id, source: connection.source, target: connection.target, label: '', evidence: 'proposed', sourceRefs: [] }] } }));
-    setSelected({ type: 'edge', id });
+    setSelected({ type: 'edge', id }); setDetailOpen(true);
   }, [commit, mode]);
   const onLayout = useCallback((id, position) => commit(current => ({ ...current, layout: { ...current.layout, [id]: position } })), [commit]);
 
   async function verifySources() {
+    if (offline) return notify('离线网页不能读取源文件。将会话交给 Codex，用 verify 命令核对。');
     const baselineId = session.baseline.id;
     const sessionId = session.id;
     const root = session.target.root;
@@ -226,71 +252,109 @@ export default function App() {
     }
   }
   const copyPrompt = () => copyContent('优化提示词', prompt);
+  async function pageCopy(copy = false) {
+    try {
+      let script = document.getElementById('skill-graph-app')?.textContent;
+      let style = document.getElementById('skill-graph-css')?.textContent;
+      if (!script || !style) {
+        const scriptUrl = document.querySelector('script[type="module"][src]')?.src;
+        const styleUrls = [...document.querySelectorAll('link[rel="stylesheet"]')].map(link => link.href);
+        if (!scriptUrl || !styleUrls.length) throw Error('请使用正式构建后的页面导出离线副本。');
+        const readAsset = async url => { const response = await fetch(url); if (!response.ok) throw Error('无法读取画布资源'); return response.text(); };
+        [script, style] = await Promise.all([readAsset(scriptUrl), Promise.all(styleUrls.map(readAsset)).then(values => values.join('\n'))]);
+      }
+      const content = renderStandalone(session, { script, style });
+      if (copy) await copyContent('离线网页 HTML', content);
+      else download(content, '-流程图.html', 'text/html;charset=utf-8');
+    } catch (error) { notify(`保存网页失败：${error.message}`, true); }
+  }
   async function importFile(event) {
     const file = event.target.files?.[0]; if (!file) return;
     try { loadSession(JSON.parse(await file.text())); notify('会话已导入。'); } catch (error) { notify(`导入失败：${error.message}`, true); }
     event.target.value = '';
   }
-  function saveDraft() {
-    try { localStorage.setItem(draftStorageKey(session), JSON.stringify(session)); setSaveState('已保存本机'); notify('草稿已保存到此浏览器。跨设备使用请导出会话。'); }
-    catch { notify('浏览器无法保存，请导出会话 JSON。', true); }
-  }
-
   const validVerification = session && verification.baselineId === session.baseline.id && verification.sessionId === session.id && verification.root === session.target.root ? verification : { status: 'unverified' };
   const title = selectedTarget.type === 'node' ? entity?.title : selectedTarget.type === 'edge' ? '连线与条件' : '全图备注';
   const nodeName = id => graph?.nodes.find(node => node.id === id)?.title || id;
-  const depth = node => { let count = 0, cursor = node, seen = new Set(); while (cursor?.parentId && !seen.has(cursor.id) && count < 5) { seen.add(cursor.id); cursor = graph.nodes.find(item => item.id === cursor.parentId); count++; } return count; };
   const selectTreeNode = node => { setScope(node.parentId || ''); setOverview(!node.parentId && graph.nodes.some(item => item.parentId)); setSelected({ type: 'node', id: node.id }); };
   const enterSubflow = id => { setScope(id); setOverview(false); setSelected({ type: 'graph', id: session.id }); };
 
-  return <div className="app-shell">
+  const selectObject = target => { setSelected(target); setDetailOpen(target.type !== 'graph'); };
+  const showOverview = () => { setScope(''); setOverview(graph.nodes.some(node => node.parentId)); setSelected({ type: 'graph', id: session.id }); setDetailOpen(false); };
+  const fileAction = action => { setFileMenuOpen(false); action(); };
+  const editable = editing && mode === 'draft';
+  const directoryNodes = graph ? (query ? graph.nodes : visibleGraph.nodes).filter(node => `${node.title} ${node.purpose}`.toLowerCase().includes(query.toLowerCase())) : [];
+
+  return <div className="app-shell simplified">
     <input type="file" accept="application/json,.json" hidden ref={inputRef} onChange={importFile} />
     <header className="app-header">
-      <a className="brand" href="#" onClick={event => event.preventDefault()} aria-label="Skill Graph"><span className="brand-symbol"><Workflow size={23} /></span><span>Skill Graph<small>流程审视与优化</small></span></a>
-      {session && <><div className="header-divider" /><div className="document-title"><strong title={session.title}>{session.target.name}</strong><span><span className="status-dot" />{saveState}</span></div><div className="mode-switch" aria-label="流程版本"><button className={mode === 'baseline' ? 'active' : ''} onClick={() => setMode('baseline')}>分析现状</button><button className={mode === 'draft' ? 'active' : ''} onClick={() => setMode('draft')}>修改草稿{changeSet.changes.length > 0 && <span>{changeSet.changes.length}</span>}</button></div></>}
-      <div className="header-actions"><Button icon={Upload} onClick={() => inputRef.current.click()}>导入会话</Button>{session && <><Button icon={Download} onClick={() => setReviewTab(reviewTab === 'export' ? null : 'export')}>导出</Button><Button onClick={saveDraft}>保存草稿</Button><Button className="primary" icon={MessageSquare} onClick={() => setReviewTab(reviewTab === 'prompt' ? null : 'prompt')}>生成优化提示词</Button></>}</div>
+      <a className="brand" href="#" onClick={event => event.preventDefault()} aria-label="Skill Graph"><Workflow size={24} /><span>Skill Graph</span></a>
+      {session && <div className="document-title"><strong title={session.title}>{session.target.name}</strong><span>{offline ? '离线网页 · ' : ''}{saveState}</span></div>}
+      <div className="header-actions">
+        <div className="file-menu" ref={fileMenuRef}><Button aria-expanded={fileMenuOpen} onClick={() => setFileMenuOpen(value => !value)}>文件</Button>
+          {fileMenuOpen && <div className="file-options">
+            <button onClick={() => fileAction(() => inputRef.current.click())}>导入会话 JSON</button>
+            {session && <><button onClick={() => fileAction(() => pageCopy())}>保存网页副本</button><button onClick={() => fileAction(() => download(JSON.stringify(session, null, 2), '-session.json', 'application/json'))}>保存会话 JSON</button><button onClick={() => fileAction(() => setReviewTab('export'))}>更多导出格式</button><button onClick={() => fileAction(() => { setMode(mode === 'baseline' ? 'draft' : 'baseline'); setEditing(false); })}>{mode === 'baseline' ? '返回修改草稿' : '查看分析原图'}</button></>}
+          </div>}
+        </div>
+        {session && <Button className="primary" icon={MessageSquare} onClick={() => setReviewTab(reviewTab === 'prompt' ? null : 'prompt')}>生成优化提示词</Button>}
+      </div>
     </header>
-    {!session ? <main className="empty-workspace">{loading ? <div className="loading-state" aria-label="正在载入流程"><div /><div /><div /></div> : <div className="empty-content"><Workflow size={42} strokeWidth={1.3} /><h1>从一个 Skill，看清整个流程。</h1><p>导入分析后的会话，查看每个步骤的来源；在图上修改和批注，再把优化要求交给 Codex。</p><Button icon={Upload} className="primary" onClick={() => inputRef.current.click()}>导入会话 JSON</Button><p className="empty-help">在 Codex 中使用 Skill Graph 分析技能，或运行本地服务打开已生成的会话。</p><code>node skill-graph.mjs serve session.json</code></div>}</main> : <>
-      <nav className="mobile-tabs"><Button icon={PanelLeft} className={mobilePanel === 'tree' ? 'active' : ''} onClick={() => setMobilePanel(mobilePanel === 'tree' ? 'canvas' : 'tree')}>流程目录</Button><Button icon={Workflow} className={mobilePanel === 'canvas' ? 'active' : ''} onClick={() => setMobilePanel('canvas')}>画布</Button><Button icon={PanelRight} className={mobilePanel === 'details' ? 'active' : ''} onClick={() => setMobilePanel(mobilePanel === 'details' ? 'canvas' : 'details')}>详情与批注</Button></nav>
-      <main className={`workspace mobile-${mobilePanel}`}>
-        <aside className="tree-panel" aria-label="流程目录">
-          <div className="panel-heading"><h2>流程目录</h2><span>{graph.nodes.length}</span></div>
-          <label className="search-box"><Search size={15} /><input placeholder="搜索步骤" aria-label="搜索步骤" value={query} onChange={event => setQuery(event.target.value)} />{query && <button className="icon-button" onClick={() => setQuery('')} aria-label="清空搜索"><X size={13} /></button>}</label>
-          <button className={`tree-all ${overview ? 'active' : ''}`} onClick={() => { setSelected({ type: 'graph', id: session.id }); setScope(''); setOverview(true); }}><Layers size={16} /><span>主流程总览</span><span>{graph.nodes.filter(node => !node.parentId).length} 个步骤</span></button>
-          <button className={`tree-all ${!overview && !scope ? 'active' : ''}`} onClick={() => { setSelected({ type: 'graph', id: session.id }); setScope(''); setOverview(false); }}><Workflow size={16} /><span>全部流程</span><span>{graph.nodes.length} 个步骤</span></button>
-          <div className="tree-list">{graph.nodes.filter(node => `${node.title} ${node.purpose}`.toLowerCase().includes(query.toLowerCase())).map(node => { const Icon = (kinds[node.kind] || kinds.step)[1]; return <button key={node.id} className={`tree-item ${selected.type === 'node' && selected.id === node.id ? 'active' : ''}`} style={{ paddingInlineStart: 12 + depth(node) * 14 }} onClick={() => selectTreeNode(node)}><Icon size={15} /><span>{node.title}</span>{changedIds.has(node.id) && <i className="change-dot" />}</button>; })}{query && !graph.nodes.some(node => `${node.title} ${node.purpose}`.toLowerCase().includes(query.toLowerCase())) && <p className="muted small no-results">没有匹配的步骤，试试其他关键词。</p>}</div>
-          <div className="tree-bottom"><label className="field"><span>显示范围</span><select aria-label="显示范围" value={JSON.stringify({ overview, scope })} onChange={event => { const view = JSON.parse(event.target.value); setOverview(view.overview); setScope(view.scope); setSelected({ type: 'graph', id: session.id }); }}><option value={JSON.stringify({ overview: true, scope: '' })}>主流程总览</option><option value={JSON.stringify({ overview: false, scope: '' })}>全部流程</option>{graph.nodes.filter(node => node.kind === 'group' || graph.nodes.some(child => child.parentId === node.id)).map(node => <option key={node.id} value={JSON.stringify({ overview: false, scope: node.id })}>{node.title} · 子流程</option>)}</select></label><Button icon={Plus} disabled={mode !== 'draft'} onClick={addNode}>新增步骤</Button></div>
-          <div className="coverage-note"><span><FileText size={14} />分析覆盖</span><strong>{session.coverage.reviewedFiles.length} 个文件</strong>{session.coverage.excluded.length > 0 && <small>{session.coverage.excluded.length} 项未覆盖，详见全图信息</small>}</div>
-        </aside>
+    {!session ? <main className="empty-workspace">{loading ? <div className="loading-state" aria-label="正在载入流程"><div /><div /><div /></div> : <div className="empty-content"><Workflow size={42} strokeWidth={1.3} /><h1>打开 Skill 流程图</h1><p>导入会话，或直接打开已保存的离线网页。</p><Button icon={Upload} className="primary" onClick={() => inputRef.current.click()}>导入会话 JSON</Button></div>}</main> : <>
+      <div className="canvas-nav">
+        <Button icon={PanelLeft} aria-expanded={treeOpen} onClick={() => setTreeOpen(value => !value)}>目录</Button>
+        {scope && <Button className="subtle" onClick={showOverview}>返回主流程</Button>}
+        <select aria-label="显示范围" value={JSON.stringify({ overview, scope })} onChange={event => { const next = JSON.parse(event.target.value); setOverview(next.overview); setScope(next.scope); setSelected({ type: 'graph', id: session.id }); setDetailOpen(false); }}>
+          <option value={JSON.stringify({overview:true,scope:''})}>主流程总览</option>
+          <option value={JSON.stringify({overview:false,scope:''})}>全部流程</option>
+          {graph.nodes.filter(node => node.kind === 'group' || graph.nodes.some(child => child.parentId === node.id)).map(node => <option key={node.id} value={JSON.stringify({overview:false,scope:node.id})}>{node.title}</option>)}
+        </select>
+        <div className="nav-spacer" />
+        <Button className={editing ? 'is-on' : 'subtle'} aria-pressed={editing} disabled={mode === 'baseline'} onClick={() => setEditing(value => !value)}>编辑流程</Button>
+        <Button className="subtle" onClick={() => { setSelected({type:'graph',id:session.id}); setDetailOpen(true); }}>全图备注</Button>
+        <button className="icon-button" title="撤销" aria-label="撤销" disabled={!history.past.length} onClick={undo}><Undo2 size={17} /></button>
+        <button className="icon-button" title="重做" aria-label="重做" disabled={!history.future.length} onClick={redo}><Redo2 size={17} /></button>
+      </div>
+      <main className={`workspace ${treeOpen ? 'has-tree' : ''} ${detailOpen ? 'has-detail' : ''}`}>
+        {treeOpen && <aside className="tree-panel" aria-label="流程目录">
+          <div className="panel-heading"><h2>步骤目录</h2><button className="icon-button" aria-label="关闭目录" onClick={() => setTreeOpen(false)}><X size={16} /></button></div>
+          <label className="search-box"><Search size={15} /><input placeholder="搜索全部步骤" aria-label="搜索步骤" value={query} onChange={event => setQuery(event.target.value)} /></label>
+          <div className="tree-list">{directoryNodes.map(node => <button key={node.id} className={`tree-item ${selected.id === node.id ? 'active' : ''}`} onClick={() => { selectTreeNode(node); setDetailOpen(true); }}><CircleDot size={14} /><span>{node.title}</span></button>)}{!directoryNodes.length && <p className="muted small">没有匹配的步骤。</p>}</div>
+        </aside>}
         <section className="canvas-panel" aria-label="流程画布">
-          <div className="canvas-toolbar"><div className="breadcrumb"><span>{session.target.name}</span><ChevronRight size={13} /><strong>{overview ? '主流程总览' : scope ? `${nodeName(scope)} · 子流程` : '全部流程'}</strong></div><div className="history-controls"><button className="icon-button" title="撤销 ⌘Z" aria-label="撤销" disabled={!history.past.length} onClick={undo}><Undo2 size={17} /></button><button className="icon-button" title="重做 ⇧⌘Z" aria-label="重做" disabled={!history.future.length} onClick={redo}><Redo2 size={17} /></button></div></div>
-          <div className="canvas"><GraphCanvas graph={graph} session={session} selected={selectedTarget} onSelect={setSelected} onLayout={onLayout} onConnect={onConnect} readonly={mode !== 'draft'} changedIds={changedIds} scope={scope} overview={overview} />{visibleGraph.nodes.length === 0 && <div className="canvas-empty"><p>{scope ? '此子流程还没有步骤' : '当前范围还没有步骤'}</p><Button icon={Plus} onClick={addNode} disabled={mode !== 'draft'}>新增第一个步骤</Button></div>}</div>
-          <div className="canvas-status"><span><span className="legend-dot" />{mode === 'baseline' ? '分析时的流程' : '当前修改草稿'}</span><span>拖动整理布局 · 从节点圆点拖出连线</span><button onClick={() => setReviewTab(reviewTab === 'changes' ? null : 'changes')}>{changeSet.changes.length} 项流程改动 · {session.annotations.length} 条批注 <ChevronRight size={13} /></button></div>
+          <div className="canvas-hint">{mode === 'baseline' ? '分析原图 · 只读' : editing ? '编辑模式 · 可添加步骤、修改职责和连线' : '点击步骤写批注，拖动可整理布局'}{editable && <Button icon={Plus} onClick={() => { addNode(); setDetailOpen(true); }}>新增步骤</Button>}</div>
+          <div className="canvas"><GraphCanvas graph={graph} session={session} selected={selected} onSelect={selectObject} onLayout={onLayout} onConnect={onConnect} readonly={!editable} changedIds={changedIds} scope={scope} overview={overview} /></div>
+          <div className="canvas-status"><span>{visibleGraph.nodes.length} 个步骤</span><button onClick={() => setReviewTab(reviewTab === 'changes' ? null : 'changes')}>{changeSet.changes.length} 项流程改动 · {session.annotations.length} 条批注 <ChevronRight size={13} /></button></div>
         </section>
-        <aside className="detail-panel" aria-label="详情与批注">
-          <div className="detail-title"><div><span className="muted small">{selectedTarget.type === 'node' ? '步骤详情' : selectedTarget.type === 'edge' ? '连接详情' : '流程概览'}</span><h2>{title}</h2></div>{selectedTarget.type !== 'graph' && <button className="icon-button" aria-label="关闭对象详情" title="关闭对象详情" onClick={() => setSelected({ type: 'graph', id: session.id })}><X size={17} /></button>}</div>
+        {detailOpen && <aside className="detail-panel" aria-label="详情与批注">
+          <div className="detail-title"><h2>{title}</h2><button className="icon-button" aria-label="关闭对象详情" onClick={() => setDetailOpen(false)}><X size={17} /></button></div>
           <div className="detail-scroll">
-            {mode === 'baseline' && <p className="read-only-note">现状来自分析基线。切换到修改草稿后可编辑步骤和连线。</p>}
-            {selectedTarget.type === 'node' && <><div className="evidence-line"><span className={`evidence evidence-${entity.evidence}`}>{evidenceNames[entity.evidence]}</span><code title={entity.id}>{entity.id}</code></div>{(entity.kind === 'group' || graph.nodes.some(node => node.parentId === entity.id)) && <Button className="subflow-button" icon={Layers} onClick={() => enterSubflow(entity.id)}>查看子流程 · {graph.nodes.filter(node => node.parentId === entity.id).length} 个步骤<ChevronRight size={14} /></Button>}<Field label="显示名称" value={entity.title} disabled={mode !== 'draft'} hint="仅修改名称不会生成流程变更要求。" onCommit={title => title.trim() ? updateNode(entity.id, { title }) : notify('步骤名称不能为空。', true)} /><label className="field"><span>步骤类型</span><select aria-label="步骤类型" value={entity.kind} disabled={mode !== 'draft'} onChange={event => updateNode(entity.id, { kind: event.target.value })}>{Object.entries(kinds).map(([id, [name]]) => <option key={id} value={id}>{name}</option>)}</select></label><Field label="职责与行为" value={entity.purpose} disabled={mode !== 'draft'} onCommit={purpose => updateNode(entity.id, { purpose })} multiline rows={4} /><div className="io-fields"><Field label="输入（每行一项）" value={entity.inputs.join('\n')} disabled={mode !== 'draft'} onCommit={value => updateNode(entity.id, { inputs: lines(value) })} multiline rows={2} /><Field label="输出（每行一项）" value={entity.outputs.join('\n')} disabled={mode !== 'draft'} onCommit={value => updateNode(entity.id, { outputs: lines(value) })} multiline rows={2} /></div><section className="detail-section"><h3><FileText size={15} />来源定位</h3><SourceList refs={entity.sourceRefs} /></section><section className="detail-section"><h3>上下游</h3><div className="related-nodes">{graph.edges.filter(edge => edge.source === entity.id || edge.target === entity.id).map(edge => <button key={edge.id} onClick={() => setSelected({ type: 'edge', id: edge.id })}><span>{nodeName(edge.source)}</span><ArrowRight size={13} /><span>{nodeName(edge.target)}</span>{edge.label && <small>{edge.label}</small>}</button>)}{!graph.edges.some(edge => edge.source === entity.id || edge.target === entity.id) && <p className="muted small">暂无连线。从节点下方圆点拖向另一步骤可建立连接。</p>}</div></section><Button className="danger subtle" icon={Trash2} disabled={mode !== 'draft'} onClick={() => { commit(current => removeNode(current, entity.id)); setSelected({ type: 'graph', id: session.id }); notify('已从草稿移除步骤及其连线，批注已保留，可撤销。'); }}>从草稿移除步骤</Button></>}
-            {selectedTarget.type === 'edge' && <><div className="edge-route"><strong>{nodeName(entity.source)}</strong><ArrowRight size={17} /><strong>{nodeName(entity.target)}</strong></div><Field label="分支条件 / 连线说明" value={entity.label} disabled={mode !== 'draft'} onCommit={label => updateEdge(entity.id, { label })} multiline rows={3} /><label className="field"><span>起点</span><select aria-label="连线起点" value={entity.source} disabled={mode !== 'draft'} onChange={event => updateEdge(entity.id, { source: event.target.value })}>{graph.nodes.map(node => <option value={node.id} key={node.id}>{node.title}</option>)}</select></label><label className="field"><span>终点</span><select aria-label="连线终点" value={entity.target} disabled={mode !== 'draft'} onChange={event => updateEdge(entity.id, { target: event.target.value })}>{graph.nodes.map(node => <option value={node.id} key={node.id}>{node.title}</option>)}</select></label><section className="detail-section"><h3>来源定位</h3><SourceList refs={entity.sourceRefs} /></section><Button className="danger subtle" icon={Trash2} disabled={mode !== 'draft'} onClick={() => { commit(current => ({ ...current, draft: { ...current.draft, edges: current.draft.edges.filter(edge => edge.id !== entity.id) } })); setSelected({ type: 'graph', id: session.id }); notify('已移除连线，相关批注仍保留。'); }}>移除连线</Button></>}
-            {selectedTarget.type === 'graph' && <><p className="overview-description">{session.title}</p><div className="baseline-info"><span>分析基线</span><code>{session.baseline.id}</code><small>{new Date(session.baseline.capturedAt).toLocaleString('zh-CN')}</small></div><div className={`verification verification-${validVerification.status}`}><div><ShieldCheck size={16} /><strong>{validVerification.status === 'current' ? '源文件已核对' : validVerification.status === 'changed' ? '源文件有变化' : validVerification.status === 'checking' ? '正在核对源文件…' : '源文件尚未核对'}</strong></div><p>{validVerification.status === 'current' ? '本次核对与当前分析基线一致。执行修改前仍需重新校验。' : validVerification.status === 'changed' ? '请重新分析变化的文件，再确认批注归属。' : '导出的请求包含基线信息，执行前需要核对实际文件。'}</p><Button icon={ShieldCheck} onClick={verifySources} disabled={validVerification.status === 'checking'}>核对源文件</Button>{validVerification.files?.filter(file => file.status !== 'current').map(file => <p key={file.path} className="small">{file.path} · {({ changed: '已变化', missing: '不存在', unreadable: '无法读取' })[file.status]}</p>)}</div><details className="coverage-details"><summary>分析范围与来源 <span>{session.coverage.reviewedFiles.length} 个文件</span></summary>{session.coverage.reviewedFiles.map((file, index) => <p key={index}><FileText size={12} />{typeof file === 'string' ? file : file.path}</p>)}{session.coverage.excluded.map((file, index) => <p key={`excluded-${index}`} className="warning-text">{file.path}：{file.reason}</p>)}</details></>}
-            <section className="detail-section annotation-section"><h3><MessageSquare size={16} />{selectedTarget.type === 'graph' ? '全图批注' : '对象批注'}<span>{selectedNotes.length}</span></h3><AnnotationList notes={selectedNotes} onUpdate={updateAnnotation} onDelete={deleteAnnotation} /><AnnotationComposer target={selectedTarget} onAdd={addAnnotation} /></section>
-            {selectedTarget.type === 'graph' && <><section className="detail-section"><h3>优化约束</h3><Field label="必须保留的行为（每行一项）" value={session.constraints.join('\n')} onCommit={value => commit(current => ({ ...current, constraints: lines(value) }))} multiline rows={3} placeholder="例如：保持现有报告格式" /><Field label="验收条件（每行一项）" value={session.acceptanceCriteria.join('\n')} onCommit={value => commit(current => ({ ...current, acceptanceCriteria: lines(value) }))} multiline rows={3} placeholder="例如：无效输入不会生成空报告" /></section>{allNotes.some(note => note.orphaned) && <section className="detail-section"><h3><AlertCircle size={15} />已移除对象的批注</h3><p className="muted small">原始对象和来源仍保留在修改包中，执行前需确认归属。</p><AnnotationList notes={allNotes.filter(note => note.orphaned)} onUpdate={updateAnnotation} onDelete={deleteAnnotation} showTargets /></section>}</>}
+            {entity && <div className="object-summary"><p>{selectedTarget.type === 'node' ? entity.purpose : `${nodeName(entity.source)} → ${nodeName(entity.target)}`}</p>{selectedTarget.type === 'edge' && <p className="muted">{entity.label || '未注明条件'}</p>}{entity.evidence !== 'verified' && <small className="warning-text">{evidenceNames[entity.evidence]}</small>}{selectedTarget.type === 'node' && (entity.kind === 'group' || graph.nodes.some(node => node.parentId === entity.id)) && <Button className="subflow-button" icon={Layers} onClick={() => { enterSubflow(entity.id); setDetailOpen(false); }}>查看子流程 · {graph.nodes.filter(node => node.parentId === entity.id).length} 个步骤<ChevronRight size={14} /></Button>}</div>}
+            {selectedTarget.type === 'graph' && <p>{session.title}</p>}
+            <section className="annotation-section"><AnnotationList notes={selectedNotes} onUpdate={updateAnnotation} onDelete={deleteAnnotation} /><AnnotationComposer target={selectedTarget} onAdd={addAnnotation} /></section>
+            {entity && <details className="detail-section source-disclosure"><summary>源码依据 · {entity.sourceRefs.length} 处</summary><SourceList refs={entity.sourceRefs} /></details>}
+            {entity && selectedTarget.type === 'node' && <details className="detail-section"><summary>输入、输出与上下游</summary><p className="small">输入：{entity.inputs.join('、') || '未指定'}</p><p className="small">输出：{entity.outputs.join('、') || '未指定'}</p><div className="related-nodes">{graph.edges.filter(edge => edge.source === entity.id || edge.target === entity.id).map(edge => <button key={edge.id} onClick={() => selectObject({ type: 'edge', id: edge.id })}><span>{nodeName(edge.source)} → {nodeName(edge.target)}</span><small>{edge.label}</small></button>)}</div></details>}
+            {entity && !editing && mode === 'draft' && <Button className="subtle" onClick={() => setEditing(true)}>修改步骤或连线</Button>}
+            {editable && entity && <section className="detail-section advanced-editor"><h3>编辑流程</h3>
+              {selectedTarget.type === 'node' ? <><Field label="显示名称" value={entity.title} hint="名称只影响显示。" onCommit={title => title.trim() ? updateNode(entity.id, { title }) : notify('名称不能为空。', true)} /><label className="field"><span>步骤类型</span><select aria-label="步骤类型" value={entity.kind} onChange={event => updateNode(entity.id, { kind: event.target.value })}>{Object.entries(kinds).map(([id,[name]]) => <option key={id} value={id}>{name}</option>)}</select></label><Field label="职责与行为" value={entity.purpose} onCommit={purpose => updateNode(entity.id,{purpose})} multiline rows={4} /><Field label="输入（每行一项）" value={entity.inputs.join('\n')} onCommit={value=>updateNode(entity.id,{inputs:lines(value)})} multiline rows={2} /><Field label="输出（每行一项）" value={entity.outputs.join('\n')} onCommit={value=>updateNode(entity.id,{outputs:lines(value)})} multiline rows={2} /><Button className="danger subtle" icon={Trash2} onClick={()=>{commit(current=>removeNode(current,entity.id));setSelected({type:'graph',id:session.id});notify('已移除步骤，批注保留，可撤销。');}}>从草稿移除步骤</Button></> : <><Field label="分支条件 / 连线说明" value={entity.label} onCommit={label=>updateEdge(entity.id,{label})} multiline /><label className="field"><span>起点</span><select aria-label="连线起点" value={entity.source} onChange={event=>updateEdge(entity.id,{source:event.target.value})}>{graph.nodes.map(node=><option key={node.id} value={node.id}>{node.title}</option>)}</select></label><label className="field"><span>终点</span><select aria-label="连线终点" value={entity.target} onChange={event=>updateEdge(entity.id,{target:event.target.value})}>{graph.nodes.map(node=><option key={node.id} value={node.id}>{node.title}</option>)}</select></label><Button className="danger subtle" onClick={()=>{commit(current=>({...current,draft:{...current.draft,edges:current.draft.edges.filter(edge=>edge.id!==entity.id)}}));setSelected({type:'graph',id:session.id});}}>移除连线</Button></>}
+            </section>}
+            {selectedTarget.type === 'graph' && <><details className="detail-section"><summary>来源与分析范围</summary><p className="small">分析于 {new Date(session.baseline.capturedAt).toLocaleString('zh-CN')}，覆盖 {session.coverage.reviewedFiles.length} 个文件。</p>{offline ? <p className="small muted">此页保存分析时的源码快照。执行修改前请由 Codex 核对源文件。</p> : <><Button icon={ShieldCheck} onClick={verifySources} disabled={validVerification.status==='checking'}>核对源文件</Button><p className="small">{validVerification.status==='current'?'源文件已核对':validVerification.status==='changed'?'源文件有变化':'尚未核对当前源文件'}</p></>}{session.coverage.reviewedFiles.map((file,index)=><p className="small" key={index}>{typeof file==='string'?file:file.path}</p>)}{session.coverage.excluded.map((file,index)=><p className="small muted" key={`excluded-${index}`}>{file.path}：{file.reason}</p>)}</details><details className="detail-section"><summary>优化约束与验收条件</summary><Field label="必须保留的行为（每行一项）" value={session.constraints.join('\n')} onCommit={value=>commit(current=>({...current,constraints:lines(value)}))} multiline /><Field label="验收条件（每行一项）" value={session.acceptanceCriteria.join('\n')} onCommit={value=>commit(current=>({...current,acceptanceCriteria:lines(value)}))} multiline /></details>{allNotes.some(note=>note.orphaned)&&<section className="detail-section"><h3>待重新关联的批注</h3><AnnotationList notes={allNotes.filter(note=>note.orphaned)} onUpdate={updateAnnotation} onDelete={deleteAnnotation} showTargets /></section>}</>}
           </div>
-        </aside>
+        </aside>}
       </main>
-      {reviewTab && <section className="review-panel" aria-label="改动与导出"><div className="review-heading"><div className="review-tabs"><button className={reviewTab === 'changes' ? 'active' : ''} onClick={() => setReviewTab('changes')}>改动清单 <span>{changeSet.changes.length}</span></button><button className={reviewTab === 'prompt' ? 'active' : ''} onClick={() => setReviewTab('prompt')}>优化提示词</button><button className={reviewTab === 'export' ? 'active' : ''} onClick={() => setReviewTab('export')}>导出文件</button></div><button className="icon-button" aria-label="关闭改动与导出" onClick={() => setReviewTab(null)}><X size={18} /></button></div>
-        {reviewTab === 'prompt' && <div className="prompt-review"><div className="review-actions"><p>包含来源、净差异和批注原话。问题与建议分别保留。</p><div><Button icon={Download} onClick={() => download(prompt, '-优化提示词.md', 'text/markdown;charset=utf-8')}>下载 Markdown</Button><Button icon={Copy} className="primary" onClick={copyPrompt}>复制提示词</Button></div></div><pre tabIndex="0" aria-label="优化提示词预览">{prompt}</pre></div>}
-        {reviewTab === 'changes' && <div className="changes-review"><div className="change-list">{changeSet.changes.length === 0 ? <div className="empty-changes"><Check size={21} /><strong>没有流程结构变化</strong><p>节点移动与显示名称调整只影响图的展示。批注仍会完整导出。</p></div> : changeSet.changes.map((change, index) => <article className="change-row" key={`${change.targetId}-${index}`}><span className={`change-type ${change.type.endsWith('removed') ? 'removed' : ''}`}>{changeNames[change.type] || change.type}</span><div><strong>{change.after?.title || change.before?.title || change.targetId}</strong><details><summary>查看修改前后</summary><div className="before-after"><div><span>修改前</span><pre>{JSON.stringify(change.before || null, null, 2)}</pre></div><div><span>修改后</span><pre>{JSON.stringify(change.after || null, null, 2)}</pre></div></div></details></div></article>)}</div><div className="review-notes"><h3>全部批注 <span>{allNotes.length}</span></h3><AnnotationList notes={allNotes} onUpdate={updateAnnotation} onDelete={deleteAnnotation} showTargets />{!allNotes.length && <p className="muted">选择步骤或连线，在右侧添加你的修改要求。</p>}</div></div>}
-        {reviewTab === 'export' && <div className="export-list">
-          {exportPreview && <section className="export-preview"><div><h3>{exportPreview.label} · 手动复制</h3><Button onClick={() => { exportPreviewRef.current?.focus(); exportPreviewRef.current?.select(); }}>全选内容</Button><button className="icon-button" aria-label="关闭导出内容预览" onClick={() => setExportPreview(null)}><X size={16} /></button></div><p>内容已选中。按 ⌘C / Ctrl+C 复制，然后粘贴并保存为对应文件。</p><textarea ref={exportPreviewRef} aria-label="导出内容预览" readOnly rows={8} value={exportPreview.content} onFocus={event => event.currentTarget.select()} /></section>}
-          <div><FileText size={22} /><section><h3>完整会话</h3><p>保存流程、来源、布局及批注，可再次导入继续编辑。</p></section><div className="export-buttons"><Button icon={Copy} onClick={() => copyContent('会话 JSON', JSON.stringify(session, null, 2))}>复制会话 JSON</Button><Button icon={Download} onClick={() => download(JSON.stringify(session, null, 2), '-session.json', 'application/json')}>下载会话 JSON</Button></div></div>
-          <div><MessageSquare size={22} /><section><h3>优化修改包</h3><p>供 Codex 读取的结构化修改要求、基线和来源。</p></section><div className="export-buttons"><Button icon={Copy} onClick={() => copyContent('修改包 JSON', JSON.stringify(changeSet, null, 2))}>复制修改包 JSON</Button><Button icon={Download} onClick={() => download(JSON.stringify(changeSet, null, 2), '-changes.json', 'application/json')}>下载修改包 JSON</Button></div></div>
-          <div><Workflow size={22} /><section><h3>Mermaid 流程图</h3><p>导出{mode === 'draft' ? '修改草稿' : '分析现状'}用于文档展示。备注与布局保存在完整会话中。</p></section><div className="export-buttons"><Button icon={Copy} onClick={() => copyContent('Mermaid', toMermaid(graph))}>复制 Mermaid</Button><Button icon={Download} onClick={() => download(toMermaid(graph), `-${mode}.mmd`)}>下载 Mermaid</Button></div></div>
-          <div><Copy size={22} /><section><h3>优化提示词</h3><p>可读的 Markdown，交给 Codex 修改和验证目标 Skill。</p></section><div className="export-buttons"><Button icon={Copy} onClick={copyPrompt}>复制提示词</Button><Button icon={Download} onClick={() => download(prompt, '-优化提示词.md', 'text/markdown;charset=utf-8')}>下载 Markdown</Button></div></div>
+      {reviewTab && <section className="review-panel" aria-label="改动与导出"><div className="review-heading"><div className="review-tabs"><button className={reviewTab==='changes'?'active':''} onClick={()=>setReviewTab('changes')}>改动与批注</button><button className={reviewTab==='prompt'?'active':''} onClick={()=>setReviewTab('prompt')}>优化提示词</button><button className={reviewTab==='export'?'active':''} onClick={()=>setReviewTab('export')}>保存与导出</button></div><button className="icon-button" aria-label="关闭改动与导出" onClick={()=>setReviewTab(null)}><X size={18} /></button></div>
+        {reviewTab==='prompt'&&<div className="prompt-review"><div className="review-actions"><p>复制给 Codex，按批注核对源码并优化。</p><Button icon={Copy} className="primary" onClick={copyPrompt}>复制提示词</Button></div><pre tabIndex="0" aria-label="优化提示词预览">{prompt}</pre></div>}
+        {reviewTab==='changes'&&<div className="changes-review"><div className="change-list">{changeSet.changes.length===0?<div className="empty-changes"><Check size={21} /><strong>没有流程结构变化</strong><p>移动位置不产生修改要求。批注会完整导出。</p></div>:changeSet.changes.map((change,index)=><article className="change-row" key={`${change.targetId}-${index}`}><span className="change-type">{changeNames[change.type]}</span><div><strong>{change.after?.title||change.before?.title||change.targetId}</strong><details><summary>修改前后</summary><pre>{JSON.stringify({before:change.before,after:change.after},null,2)}</pre></details></div></article>)}</div><div className="review-notes"><h3>全部批注 · {allNotes.length}</h3><AnnotationList notes={allNotes} onUpdate={updateAnnotation} onDelete={deleteAnnotation} showTargets /></div></div>}
+        {reviewTab==='export'&&<div className="export-list">
+          {exportPreview&&<section className="export-preview"><div><h3>{exportPreview.label} · 手动复制</h3><Button onClick={()=>{exportPreviewRef.current?.focus();exportPreviewRef.current?.select();}}>全选内容</Button><button className="icon-button" aria-label="关闭导出内容预览" onClick={()=>setExportPreview(null)}><X size={16} /></button></div><p>按 ⌘C / Ctrl+C 复制，保存为对应文件。</p><textarea ref={exportPreviewRef} aria-label="导出内容预览" readOnly rows={8} value={exportPreview.content} onFocus={event=>event.currentTarget.select()} /></section>}
+          <div><section><h3>离线网页</h3><p>连同当前批注保存，之后直接打开，不依赖服务。</p></section><div className="export-buttons"><Button onClick={()=>pageCopy(true)}>复制网页 HTML</Button><Button onClick={()=>pageCopy()}>保存网页副本</Button></div></div>
+          <div><section><h3>完整会话</h3><p>保存来源、流程及批注，可导入继续编辑。</p></section><div className="export-buttons"><Button onClick={()=>copyContent('会话 JSON',JSON.stringify(session,null,2))}>复制会话 JSON</Button><Button onClick={()=>download(JSON.stringify(session,null,2),'-session.json','application/json')}>下载会话 JSON</Button></div></div>
+          <div><section><h3>优化修改包</h3></section><div className="export-buttons"><Button onClick={()=>copyContent('修改包 JSON',JSON.stringify(changeSet,null,2))}>复制修改包 JSON</Button><Button onClick={()=>download(JSON.stringify(changeSet,null,2),'-changes.json','application/json')}>下载修改包 JSON</Button></div></div>
+          <div><section><h3>Mermaid</h3></section><div className="export-buttons"><Button onClick={()=>copyContent('Mermaid',toMermaid(graph))}>复制 Mermaid</Button><Button onClick={()=>download(toMermaid(graph),`-${mode}.mmd`)}>下载 Mermaid</Button></div></div>
+          <div><section><h3>优化提示词</h3></section><div className="export-buttons"><Button onClick={copyPrompt}>复制提示词</Button><Button onClick={()=>download(prompt,'-优化提示词.md','text/markdown;charset=utf-8')}>下载 Markdown</Button></div></div>
         </div>}
       </section>}
     </>}
-    {message && <div className={`toast ${message.error ? 'toast-error' : ''}`} role={message.error ? 'alert' : 'status'}>{message.error ? <AlertCircle size={17} /> : <Check size={17} />}<span>{message.text}</span><button className="icon-button" aria-label="关闭提示" onClick={() => setMessage(null)}><X size={15} /></button></div>}
+    {message&&<div className={`toast ${message.error?'toast-error':''}`} role={message.error?'alert':'status'}>{message.error?<AlertCircle size={17}/>:<Check size={17}/>}<span>{message.text}</span><button className="icon-button" aria-label="关闭提示" onClick={()=>setMessage(null)}><X size={15}/></button></div>}
   </div>;
 }

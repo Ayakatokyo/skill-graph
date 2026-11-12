@@ -6,6 +6,7 @@ import {readFile, writeFile, mkdir, rename, realpath, stat} from 'node:fs/promis
 import {randomUUID} from 'node:crypto';
 import {inventory, createSession, verifySession, refreshSession, relativePath} from './lib/files.mjs';
 import {validateSession, buildChangeSet, generatePrompt, toMermaid} from './lib/graph.mjs';
+import {renderStandalone} from './lib/standalone.mjs';
 
 const HERE=path.dirname(fileURLToPath(import.meta.url));
 const json=value=>JSON.stringify(value,null,2)+'\n';
@@ -13,6 +14,23 @@ async function loadJSON(file){const info=await stat(file);if(info.size>20*1024*1
 async function save(file,content){const target=path.resolve(file);await mkdir(path.dirname(target),{recursive:true});const temp=target+'.'+randomUUID()+'.tmp';await writeFile(temp,content,{mode:0o600});await rename(temp,target);}
 function parseArgs(args){const positional=[],options={};for(let i=0;i<args.length;i++){const arg=args[i];if(arg.startsWith('--')){if(!['--out','--analysis','--port','--root'].includes(arg))throw new Error(`未知选项：${arg}`);if(!args[i+1]||args[i+1].startsWith('--'))throw new Error(`${arg} 缺少值`);if(options[arg.slice(2)]!==undefined)throw new Error(`重复选项：${arg}`);options[arg.slice(2)]=args[++i];}else positional.push(arg);}return {positional,options};}
 function requireOption(options,key){if(!options[key])throw new Error(`需要 --${key}`);return options[key];}
+
+export async function standalonePage(session,viewerDir=path.join(HERE,'../assets/viewer')) {
+  const root=await realpath(viewerDir);
+  const html=await readFile(path.join(root,'index.html'),'utf8');
+  const scriptFile=html.match(/<script\b[^>]*\bsrc="([^"]+)"/i)?.[1];
+  const styleFiles=[...html.matchAll(/<link\b[^>]*\bhref="([^"]+\.css)"/gi)].map(match=>match[1]);
+  if(!scriptFile||!styleFiles.length)throw new Error('未找到已构建画布资源，请运行 npm run build');
+  const asset=async name=>{
+    const relative=name.replace(/^\.\//,'');relativePath(relative);
+    const file=await realpath(path.join(root,relative));
+    if(!file.startsWith(root+path.sep))throw new Error('画布资源必须在构建目录内');
+    return readFile(file,'utf8');
+  };
+  const script=await asset(scriptFile);
+  const style=(await Promise.all(styleFiles.map(asset))).join('\n');
+  return renderStandalone(session,{script,style});
+}
 
 const MIME={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.woff2':'font/woff2','.json':'application/json; charset=utf-8'};
 export async function startServer(session,{port=0,viewerDir=path.join(HERE,'../assets/viewer')}={}) {
@@ -48,7 +66,7 @@ export async function startServer(session,{port=0,viewerDir=path.join(HERE,'../a
   return server;
 }
 
-const HELP=`Skill Graph · 单个 Skill 的流程梳理与修改请求\n\n用法（Node 20+）：\n  inventory ROOT --out inventory.json\n  create ROOT --analysis analysis.json --out session.json\n  verify session.json [--root NEW_ROOT]\n  export session.json --out DIRECTORY\n  refresh session.json --analysis analysis.json --out NEW_SESSION [--root NEW_ROOT]\n  serve session.json [--port 0]\n\n分析由 Codex 阅读源文件后生成；inventory 仅盘点文件。\nserve 只读取文件，画布草稿保存在浏览器，导出 JSON 后可再次载入。\nverify 全部匹配时退出 0，文件变化/缺失退出 2，命令或数据错误退出 1。\n`;
+const HELP=`Skill Graph · 单个 Skill 的流程梳理与修改请求\n\n用法（Node 20+）：\n  inventory ROOT --out inventory.json\n  create ROOT --analysis analysis.json --out session.json\n  verify session.json [--root NEW_ROOT]\n  export session.json --out DIRECTORY\n  html session.json --out flow.html\n  refresh session.json --analysis analysis.json --out NEW_SESSION [--root NEW_ROOT]\n  serve session.json [--port 0]\n\n分析由 Codex 阅读源文件后生成；inventory 仅盘点文件。\nhtml 输出包含画布与会话的独立网页，无需启动服务。\nserve 仅在进程运行期间可用；草稿保存在浏览器，下载网页副本或 JSON 可长期保存。\nverify 全部匹配时退出 0，文件变化/缺失退出 2，命令或数据错误退出 1。\n`;
 export async function main(args=process.argv.slice(2)) {
   const command=args.shift();
   if(!command||command==='help'||command==='--help'){console.log(HELP);return;}
@@ -57,8 +75,9 @@ export async function main(args=process.argv.slice(2)) {
   const input=positional[0];
   if(command==='inventory'){const data=await inventory(input);await save(requireOption(options,'out'),json(data));console.log(json({files:data.files.length,excluded:data.excluded.length,out:path.resolve(options.out)}));return;}
   if(command==='create'){const analysis=await loadJSON(requireOption(options,'analysis'));const data=await createSession(input,analysis);await save(requireOption(options,'out'),json(data));console.log(json({sessionId:data.id,nodes:data.draft.nodes.length,edges:data.draft.edges.length,out:path.resolve(options.out)}));return;}
-  if(!['verify','export','refresh','serve'].includes(command))throw new Error(`未知命令：${command}`);
+  if(!['verify','export','refresh','serve','html'].includes(command))throw new Error(`未知命令：${command}`);
   const session=validateSession(await loadJSON(input));
+  if(command==='html'){await save(requireOption(options,'out'),await standalonePage(session));console.log(json({out:path.resolve(options.out),mode:'离线 HTML，可直接打开；不依赖本地服务',sourceVerification:'离线页面不能读取源文件；执行修改前运行 verify'}));return;}
   if(command==='verify'){const result=await verifySession(session,options.root);console.log(json(result));if(!result.ok)process.exitCode=2;return;}
   if(command==='refresh'){const result=await refreshSession(session,await loadJSON(requireOption(options,'analysis')),options.root);await save(requireOption(options,'out'),json(result));console.log(json({baselineId:result.baseline.id,annotations:result.annotations.length,out:path.resolve(options.out)}));return;}
   if(command==='export'){

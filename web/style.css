@@ -345,3 +345,84 @@
     *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
   }
 }
+
+@layer responsive {
+  .simplified .app-header { min-height: 68px; height: 68px; padding: 12px 24px; gap: 24px; flex-wrap: nowrap; }
+  .simplified .brand { font-size: 16px; gap: 9px; }
+  .simplified .document-title { max-width: 520px; min-width: 0; flex: 1; }
+  .simplified .document-title strong { font-size: 14px; }
+  .simplified .document-title > span { font-size: 11px; }
+  .simplified .header-actions { margin-left: auto; width: auto; gap: 8px; flex-wrap: nowrap; order: initial; }
+  .simplified .header-actions .button { min-height: 36px; padding: 8px 13px; font-size: 12px; flex: initial; }
+  .simplified .header-actions .button svg { display: block; }
+  .file-menu { position: relative; }
+  .file-options { position: absolute; top: calc(100% + 8px); right: 0; width: 198px; padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; z-index: var(--z-drawer); }
+  .file-options button { display: block; width: 100%; padding: 11px; text-align: left; font-size: 12px; }
+  .file-options button:hover { background: var(--muted-surface); }
+  .canvas-nav { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 24px; border-bottom: 1px solid var(--line); background: var(--surface); }
+  .canvas-nav select { width: auto; max-width: 300px; font-size: 12px; padding: 8px 30px 8px 10px; }
+  .nav-spacer { flex: 1; }
+  .button.is-on { background: var(--selected); color: var(--primary); border-color: var(--primary); }
+  .simplified .workspace { display: grid; grid-template-columns: minmax(0, 1fr); position: relative; }
+  .simplified .workspace.has-tree { grid-template-columns: 230px minmax(0, 1fr); }
+  .simplified .workspace.has-detail { grid-template-columns: minmax(0, 1fr) 360px; }
+  .simplified .workspace.has-tree.has-detail { grid-template-columns: 230px minmax(0, 1fr) 360px; }
+  .simplified .tree-panel, .simplified .detail-panel { display: flex; }
+  .simplified .tree-panel { padding-top: 15px; }
+  .simplified .tree-item { font-size: 12px; min-height: 42px; }
+  .simplified .tree-item > span { white-space: normal; }
+  .simplified .canvas-panel { width: 100%; }
+  .canvas-hint { min-height: 44px; padding: 10px 24px; display: flex; align-items: center; gap: 14px; color: var(--muted); font-size: 12px; }
+  .canvas-hint .button { margin-left: auto; }
+  .simplified .canvas-status, .simplified .canvas-status button { font-size: 11px; }
+  .simplified .skill-node { width: 250px; padding: 15px 17px; border-radius: 7px; }
+  .simplified .skill-node > p { font-size: 12px; line-height: 1.65; }
+  .simplified .skill-node strong { font-size: 15px; }
+  .simplified .node-meta { font-size: 11px; }
+  .simplified .node-footer { font-size: 10px; }
+  .simplified .detail-title { padding: 16px 20px; align-items: center; }
+  .simplified .detail-title h2 { margin: 0; font-size: 16px; }
+  .simplified .detail-scroll { padding: 18px 20px 24px; }
+  .object-summary { font-size: 13px; line-height: 1.7; margin-bottom: 18px; }
+  .object-summary .subflow-button { margin: 14px 0 0; }
+  .simplified .annotation-section { margin-top: 20px; }
+  .simplified .field > span { font-size: 12px; }
+  .simplified .field textarea, .simplified .field select, .simplified .field input { font-size: 13px; }
+  .simplified .detail-section { padding-top: 16px; margin-top: 18px; }
+  .simplified .detail-section > summary { font-size: 12px; font-weight: 600; line-height: 1.8; }
+  .simplified .detail-section[open] > summary { margin-bottom: 15px; }
+  .simplified .source summary { display: list-item; overflow-wrap: anywhere; }
+  .simplified .source summary svg { display: none; }
+  .simplified .source-lines { margin-left: 8px; }
+  .simplified .source pre { font-size: 11px; max-height: 280px; }
+  .simplified .review-panel { height: 46dvh; }
+  .simplified .review-tabs { gap: 22px; }
+  .simplified .review-actions { justify-content: space-between; }
+  .simplified .export-list section { min-width: 150px; }
+  @media (max-width: 900px) {
+    .simplified .app-header { gap: 16px; padding-inline: 16px; }
+    .simplified .brand span { display: none; }
+    .canvas-nav { padding-inline: 16px; }
+    .simplified .workspace.has-tree.has-detail { grid-template-columns: minmax(0, 1fr) 330px; }
+    .simplified .has-tree.has-detail .tree-panel { position: absolute; inset: 0 auto 0 0; width: 230px; z-index: var(--z-drawer); }
+  }
+  @media (max-width: 650px) {
+    .simplified .app-header { height: auto; min-height: 68px; padding: 10px 12px; gap: 10px; }
+    .simplified .document-title strong { font-size: 12px; }
+    .simplified .document-title > span { font-size: 10px; }
+    .simplified .header-actions { gap: 4px; }
+    .simplified .header-actions .button { font-size: 11px; padding: 8px; }
+    .simplified .header-actions .button svg { display: none; }
+    .canvas-nav { padding: 7px 12px; gap: 3px; }
+    .canvas-nav select { max-width: 180px; padding-right: 16px; }
+    .canvas-nav .button { padding-inline: 7px; font-size: 11px; }
+    .nav-spacer { flex-basis: 10%; }
+    .simplified .workspace.has-tree, .simplified .workspace.has-detail, .simplified .workspace.has-tree.has-detail { grid-template-columns: minmax(0, 1fr); }
+    .simplified .tree-panel, .simplified .detail-panel { position: absolute; inset: 0 0 0 auto; width: min(360px, 100%); z-index: var(--z-drawer); }
+    .simplified .tree-panel { inset: 0 auto 0 0; width: min(260px, 100%); }
+    .canvas-hint { padding-inline: 12px; font-size: 11px; }
+    .simplified .review-panel { height: 55dvh; }
+    .simplified .review-tabs { gap: 18px; }
+    .simplified .export-buttons { margin-left: 0; }
+  }
+}

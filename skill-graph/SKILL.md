@@ -13,7 +13,7 @@ description: 梳理单个本地 Skill 的真实流程、生成带来源定位的
 2. 运行文件盘点，并实际阅读 `SKILL.md`、与流程有关的引用文档和脚本。盘点只记录文件及摘要；目录树、关键词扫描和文件名都不能代替流程理解。
 3. 从内容提取触发条件、输入、职责、输出、判断分支、异常出口和真实的人工确认点。先画主流程，再按需要用 `parentId` 组织子流程。不要把引用关系或文件排列当成执行先后。
 4. 按 [图数据协议](references/graph-format.md) 写分析 JSON。每个现有节点和有依据的连线都附真实来源；未明确的顺序标 `inferred`。覆盖记录列出实际已读文件及排除原因，不能把“发现过”写成“已读”。
-5. 用 `create` 生成会话、`verify` 核对来源，再用 `serve` 打开本地画布。说明分析范围、未确定之处和画布可表达的修改；给出会话路径与本地链接。
+5. 用 `create` 生成会话、`verify` 核对来源，再用 `html` 导出可直接打开的离线网页；需要在页面核对当前源码时使用 `serve`。说明分析范围、未确定之处和画布可表达的修改，给出网页和会话路径。
 
 文件盘点自动跳过依赖、常见 Python 工具缓存，以及目录内含 `pyvenv.cfg` 文件的 Python 虚拟环境，包括自定义名称和嵌套环境。排除项仍记录原因；不要将环境中的第三方库算作已阅读的 Skill 文件。
 
@@ -24,14 +24,20 @@ node "$SKILL_DIR/scripts/skill-graph.mjs" inventory "$TARGET" --out "$WORK/inven
 # 阅读真实文件后，编写 $WORK/analysis.json。
 node "$SKILL_DIR/scripts/skill-graph.mjs" create "$TARGET" --analysis "$WORK/analysis.json" --out "$WORK/session.json"
 node "$SKILL_DIR/scripts/skill-graph.mjs" verify "$WORK/session.json"
-node "$SKILL_DIR/scripts/skill-graph.mjs" serve "$WORK/session.json"
+node "$SKILL_DIR/scripts/skill-graph.mjs" html "$WORK/session.json" --out "$WORK/flow.html"
 ```
 
-`serve` 只监听 `127.0.0.1`，省略 `--port` 时分配端口。浏览器读取的是会话及打包资源，不能直接修改目标 Skill。画布中的草稿需导出保存；浏览器本地恢复不是交付文件。
+`flow.html` 内嵌 JavaScript、CSS 和完整会话，可用浏览器直接打开，不依赖服务或网络。离线页面只持有分析时的源码快照，不能读取当前源文件；执行修改前仍需用 CLI `verify` 核对。
+
+本地服务命令为 `node "$SKILL_DIR/scripts/skill-graph.mjs" serve "$WORK/session.json"`，只监听 `127.0.0.1`，省略 `--port` 时分配端口。服务页面的“全图备注 → 来源与分析范围”可按需核对当前源文件。两种模式都不能直接写回目标 Skill。
+
+页面会尝试在浏览器保存草稿，但存储可能受浏览器策略限制或被清除。长期保存使用“文件 → 保存网页副本”或“保存会话 JSON”，确认下载文件已落盘；页面修改不会自动写回原 HTML 或 CLI 输入会话。
 
 ## 图上操作的含义
 
-存在 `parentId` 的分层会话默认显示“主流程总览”，只展示顶层节点及同层连线。选择分组后点击“查看子流程”进入直接子节点所在层，嵌套分组可继续进入；点击左侧目录中的子步骤会自动切到它所在层级。“全部流程”显示完整图。显示范围不改变会话数据、完整导出或语义差异。
+页面默认以流程图为主，“目录”和对象详情按需打开。点击节点或连线即可添加批注，源码依据、输入输出另行展开；需要修改职责或连接时显式开启“编辑流程”。主要交付操作是“生成优化提示词”。
+
+存在 `parentId` 的分层会话默认显示“主流程总览”，只展示顶层节点及同层连线。选择分组后点击“查看子流程”进入直接子节点所在层，嵌套分组可继续进入；打开目录并点击子步骤会自动切到它所在层级。“全部流程”显示完整图。显示范围不改变会话数据、完整导出或语义差异。
 
 - 移动、缩放、折叠以及修改显示标题只影响展示，不产生源码优化要求。
 - 修改步骤职责、输入输出、连接或条件表达期望变化；新增节点标 `proposed`。移除步骤不等于删除它引用的整个文件。
@@ -42,7 +48,7 @@ node "$SKILL_DIR/scripts/skill-graph.mjs" serve "$WORK/session.json"
 
 ## 导出与回读优化请求
 
-画布可导出或复制完整会话、变更 JSON、提示词和 Mermaid。部分内置浏览器无法保存下载时，使用对应复制按钮，将内容交回 Codex 或保存为文件。CLI 导出必须使用包含最新草稿的会话文件；原始 `serve` 输入不会自动收到浏览器修改。
+“文件 → 更多导出格式”可保存或复制离线网页、完整会话、变更 JSON、提示词和 Mermaid。部分内置浏览器无法保存下载时，使用对应复制按钮；剪贴板不可用时从文本预览手动复制。CLI 导出必须使用包含最新草稿的会话文件，不能用未更新的原始输入替代。
 
 ```bash
 node "$SKILL_DIR/scripts/skill-graph.mjs" export "$WORK/edited-session.json" --out "$WORK/change-package"

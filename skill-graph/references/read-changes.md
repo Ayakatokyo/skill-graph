@@ -6,6 +6,8 @@
 
 读取 `changes.json` 及同包的 `session.json`。`prompt.md` 是可读视图，不能替代来源核对。若只有提示词，先用其明确的路径读取实际文件；缺失的目标或基线属于待核实信息，不能捏造。
 
+若用户交回离线 HTML，从 `id="skill-graph-session"` 的 JSON 数据块读取内嵌会话，或使用页面“文件 → 保存会话 JSON”得到的文件。确认它包含用户最新草稿和批注；最初生成的 HTML 不会自动收到后续页面修改。源码摘录仍是分析时快照，需要继续核对当前文件。
+
 确认 `target.root` 指向用户指定的 Skill，并以 `baseline.id` 区分修改基线。运行 `verify`，再阅读将修改的原文和相关脚本。源文件已变时，先比对差异并重新定位；不要用旧行号盲改，也不要把过期视图当作最新事实。
 
 跨机器或目录迁移时，由用户已指定的新根目录运行 `verify --root`；不能遍历同名 Skill 后随意选择。确认对象身份并重新分析后，可给 `refresh` 传相同的 `--root`。来源未变化也不保证分析语义正确，仍需检查拟修改行为是否存在。
@@ -46,7 +48,9 @@
 ```bash
 node "$SKILL_DIR/scripts/skill-graph.mjs" refresh "$WORK/edited-session.json" --analysis "$WORK/reviewed-analysis.json" --out "$WORK/refreshed-session.json"
 node "$SKILL_DIR/scripts/skill-graph.mjs" verify "$WORK/refreshed-session.json"
-node "$SKILL_DIR/scripts/skill-graph.mjs" serve "$WORK/refreshed-session.json"
+node "$SKILL_DIR/scripts/skill-graph.mjs" html "$WORK/refreshed-session.json" --out "$WORK/refreshed-flow.html"
 ```
+
+需要页面内按需核对当前源文件时，用 `serve` 打开新会话。离线 HTML 不提供实时源码核对。
 
 刷新从新分析建立实际现状，匹配 ID 保留布局与批注，无法匹配的批注保留为失联。旧会话继续保留，旧草稿不会自动成为完成事实。逐项回报已落实、未落实与仍需判断的要求，并给出修改文件、验证证据和新会话路径。

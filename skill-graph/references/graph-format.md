@@ -174,6 +174,8 @@ Annotation = {
 | `prompt.md` | 提供给 Codex 的可读请求，区分执行要求、问题和建议 |
 | `flow.mmd` | 当前草稿的 Mermaid 文本展示，不能替代完整会话 |
 
+`html SESSION --out flow.html` 另行生成单文件网页，内嵌完整会话及已构建的 JavaScript/CSS，不依赖本地服务或网络。网页的“保存网页副本”会嵌入当前草稿和批注，“保存会话 JSON”用于独立导入与 CLI 回读。浏览器草稿存储可能不可用，不能替代下载保存。离线网页中的源码摘录是基线快照，生成或打开 HTML 不会重新核对源文件。
+
 净差异种类为 `node-added`、`node-removed`、`node-updated`、`edge-added`、`edge-removed`、`edge-updated`；每项包含 `targetId` 及适用的 `before` / `after`。节点显示标题、坐标和来源元数据变化不作为实现变更；职责、类型、输入输出、层级和关系条件变化按核心差异规则处理。
 
 ## CLI 契约
@@ -187,7 +189,8 @@ Annotation = {
 | `verify SESSION` | 核对当前文件与来源基线；不一致时退出码为 2 |
 | `verify SESSION --root ROOT` | 使用明确的新根目录核对，不凭文件同名猜测目标 |
 | `export SESSION --out DIR` | 从指定会话导出四个文件；无额外模型调用 |
-| `serve SESSION [--port PORT]` | 只读提供本地页面和会话，绑定 127.0.0.1 |
+| `html SESSION --out FILE` | 将已构建画布与完整会话嵌入单个离线 HTML |
+| `serve SESSION [--port PORT]` | 只读提供本地页面、会话及按需源码核对，绑定 127.0.0.1 |
 | `refresh SESSION --analysis FILE --out NEW_SESSION [--root ROOT]` | 重新建基线，保留可匹配 ID 的布局和批注；默认使用原根目录 |
 
 命令校验失败时先读错误并修正数据或来源；不得为了通过校验删除来源字段。`verify` 成功不等于业务验收通过。跨机器后如果根目录改变，先用用户明确指定的 `--root` 核对文件并重新分析，再用 `refresh --root` 建立新基线。该选项只替换定位根目录，不证明两个同名 Skill 是同一对象。
